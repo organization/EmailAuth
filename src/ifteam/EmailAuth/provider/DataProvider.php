@@ -18,7 +18,6 @@
 namespace ifteam\EmailAuth\provider;
 
 use pocketmine\IPlayer;
-use pocketmine\utils\Config;
 
 interface DataProvider{
 

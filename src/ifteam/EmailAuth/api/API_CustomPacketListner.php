@@ -3,7 +3,6 @@
 namespace ifteam\EmailAuth\api;
 
 use pocketmine\event\Listener;
-use pocketmine\plugin\Plugin;
 use ifteam\CustomPacket\event\CustomPacketReceiveEvent;
 use ifteam\CustomPacket\CPAPI;
 use ifteam\CustomPacket\DataPacket;
@@ -26,7 +25,6 @@ use pocketmine\event\block\BlockBreakEvent;
 use pocketmine\event\block\BlockPlaceEvent;
 use pocketmine\event\player\PlayerKickEvent;
 use ifteam\EmailAuth\task\EmailSendTask;
-use pocketmine\event\player\PlayerJoinEvent;
 use pocketmine\nbt\NBT;
 use pocketmine\nbt\tag\Long;
 use pocketmine\nbt\tag\Double;
@@ -36,9 +34,7 @@ use pocketmine\nbt\tag\Int;
 use pocketmine\nbt\tag\Float;
 use pocketmine\nbt\tag\Short;
 use pocketmine\nbt\tag\Byte;
-use pocketmine\utils\Config;
 use pocketmine\event\player\PlayerPreLoginEvent;
-use pocketmine\event\server\DataPacketReceiveEvent;
 use pocketmine\item\Item as ItemItem;
 use pocketmine\entity\Effect;
 use pocketmine\inventory\InventoryHolder;

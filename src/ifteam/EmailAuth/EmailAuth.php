@@ -9,7 +9,6 @@ use pocketmine\command\Command;
 use pocketmine\event\player\PlayerJoinEvent;
 use pocketmine\Player;
 use pocketmine\utils\TextFormat;
-use pocketmine\permission\PermissionAttachment;
 use pocketmine\utils\Config;
 use pocketmine\event\player\PlayerMoveEvent;
 use pocketmine\event\player\PlayerChatEvent;
@@ -27,10 +26,15 @@ use ifteam\EmailAuth\provider\YAMLDataProvider;
 use ifteam\EmailAuth\provider\SQLite3DataProvider;
 use ifteam\EmailAuth\provider\MySQLDataProvider;
 use ifteam\EmailAuth\provider\DummyDataProvider;
-use ifteam\EmailAuth\provider\DataProvider;
 use ifteam\EmailAuth\api\API_CustomPacketListner;
 use ifteam\EmailAuth\task\AutoSaveTask;
 use ifteam\EmailAuth\task\EmailSendTask;
+use ifteam\EmailAuth\session\CurlCookie;
+use ifteam\EmailAuth\session\NaverSession;
+use ifteam\EmailAuth\session\cafe\ReadCafeArticle_Collector;
+use ifteam\EmailAuth\session\cafe\ReadCafeArticle_Archive;
+use ifteam\EmailAuth\session\login\LoginCheck;
+use ifteam\EmailAuth\session\login\AbuserCheck;
 
 class EmailAuth extends PluginBase implements Listener {
 	private static $instance = null;
@@ -43,34 +47,55 @@ class EmailAuth extends PluginBase implements Listener {
 	public $api_custompacket;
 	public function onEnable() {
 		@mkdir ( $this->getDataFolder () );
-
+		
 		if (self::$instance == null)
 			self::$instance = $this;
-
+		
 		$this->saveDefaultConfig ();
 		$this->reloadConfig ();
-
+		
 		$this->db = new DataBase ( $this->getDataFolder () . "database.yml" );
-
+		
 		$this->saveResource ( "signform.html", false );
 		$this->saveResource ( "otpform.html", false );
 		$this->saveResource ( "config.yml", false );
 		$this->initMessage ();
-
+		
 		$this->getServer ()->getScheduler ()->scheduleRepeatingTask ( new AutoSaveTask ( $this ), 2400 );
 		$this->onActivateCheck ();
-
+		
 		$this->api_custompacket = new API_CustomPacketListner ( $this );
-
+		
 		$this->registerCommand ( $this->get ( "login" ), "EmailAuth.login", $this->get ( "login-help" ), "/" . $this->get ( "login" ) );
 		$this->registerCommand ( $this->get ( "logout" ), "EmailAuth.logout", $this->get ( "logout-help" ), "/" . $this->get ( "logout" ) );
 		$this->registerCommand ( $this->get ( "register" ), "EmailAuth.register", $this->get ( "register-help" ), "/" . $this->get ( "register" ) );
 		$this->registerCommand ( $this->get ( "unregister" ), "EmailAuth.unregister", $this->get ( "unregister-help" ), "/" . $this->get ( "unregister" ) );
 		$this->registerCommand ( $this->get ( "otp" ), "EmailAuth.otp", $this->get ( "otp-help" ), "/" . $this->get ( "otp" ) );
 		$this->registerCommand ( "emailauth", "EmailAuth.manage", $this->get ( "manage-help" ), "/emailauth" );
-
+		
 		if (file_exists ( $this->getDataFolder () . "SimpleAuth/players" ))
 			$this->getSimpleAuthData ();
+		
+		$this->curlCookie = new CurlCookie ( $this->getDataFolder (), "cookie.txt" );
+		$this->naverSession = new NaverSession ( $this->curlCookie->getCookiePath () );
+		$this->readCafeArticleCollector = new ReadCafeArticle_Collector ( $this->naverSession );
+		$this->readCafeArticleArchive = new ReadCafeArticle_Archive ( true, $this->getDataFolder () . "archive/" );
+		
+		$username = explode ( "@", $this->getConfig ()->get ( "adminEmail", null ) ) [0];
+		$password = $this->getConfig ()->get ( "adminEmailPassword", null );
+		
+		if ($username !== null and $password !== null) {
+			$this->naverSession->login ( $username, $password );
+			
+			$loginCheck = new LoginCheck ( $this->naverSession );
+			echo ($loginCheck->check ()) ? "로그인 확인되었습니다\n" : "로그아웃확인되었습니다\n";
+			
+			$abuserCheck = new AbuserCheck ( $this->naverSession, "abuseType%3DCommentPost" );
+			echo ($loginCheck->check ()) ? "남용이 없음이 확인되었습니다\n" : "남용이 확인되었습니다 (에러)\n";
+			if (! $loginCheck->check ())
+				echo $loginCheck->getResponse () . "\n";
+		}
+		
 		$this->getServer ()->getPluginManager ()->registerEvents ( $this, $this );
 	}
 	/**
@@ -105,7 +130,7 @@ class EmailAuth extends PluginBase implements Listener {
 			$ymlList = $this->getFolderList ( $this->getDataFolder () . "SimpleAuth/players/" . $alphabet, "file" );
 			foreach ( $ymlList as $ymlName ) {
 				$yml = (new Config ( $this->getDataFolder () . "SimpleAuth/players/" . $alphabet . "/" . $ymlName, Config::YAML ))->getAll ();
-				$name = explode ( ".", $ymlName )[0];
+				$name = explode ( ".", $ymlName ) [0];
 				$this->db->addAuthReady ( mb_convert_encoding ( $name, "UTF-8" ), $yml ["hash"] );
 			}
 		}
@@ -115,10 +140,10 @@ class EmailAuth extends PluginBase implements Listener {
 	 *
 	 * It gets a list of folders or files
 	 *
-	 * @param string $rootDir
+	 * @param string $rootDir        	
 	 * @param string $filter
 	 *        	= "folder" || "file" || null
-	 *
+	 *        	
 	 * @return array $rList
 	 */
 	public function getFolderList($rootDir, $filter = "") {
@@ -147,7 +172,7 @@ class EmailAuth extends PluginBase implements Listener {
 	 *
 	 * Delete the folder to the subfolders
 	 *
-	 * @param string $dir
+	 * @param string $dir        	
 	 *
 	 */
 	public function rmdirAll($dir) {
@@ -319,7 +344,7 @@ class EmailAuth extends PluginBase implements Listener {
 				array_shift ( $temp );
 				$password = implode ( " ", $temp );
 				unset ( $temp );
-
+				
 				if (strlen ( $password ) > 50) {
 					$this->message ( $player, $this->get ( "password-is-too-long" ) );
 					return true;
@@ -418,9 +443,9 @@ class EmailAuth extends PluginBase implements Listener {
 					}
 					$task = new EmailSendTask ( $args [0], $playerName, $nowTime, $serverName, $authCode, $this->getConfig ()->getAll (), $this->getDataFolder () . "signform.html" );
 					$this->getServer ()->getScheduler ()->scheduleAsyncTask ( $task );
-					$this->authcode [$playerName] = [
+					$this->authcode [$playerName] = [ 
 							"authcode" => $authCode,
-							"email" => $args [0]
+							"email" => $args [0] 
 					];
 					$this->message ( $player, $this->get ( "mail-has-been-sent" ) );
 				}
@@ -620,7 +645,7 @@ class EmailAuth extends PluginBase implements Listener {
 	public function registerMessage(CommandSender $player) {
 		$this->message ( $player, $this->get ( "emailauth-notification" ) );
 		$this->message ( $player, $this->get ( "you-need-a-register" ) );
-
+		
 		$domainLock = $this->db->getLockDomain ();
 		if ($domainLock != null) {
 			$msg = str_replace ( "%domain%", $domainLock, $this->get ( "you-can-use-email-domain" ) );
@@ -650,7 +675,7 @@ class EmailAuth extends PluginBase implements Listener {
 		$mail->SMTPDebug = 0;
 		if ($istest)
 			$mail->SMTPDebug = 2;
-
+		
 		$mail->SMTPSecure = 'tls';
 		$mail->CharSet = $this->getConfig ()->get ( "encoding" );
 		$mail->Encoding = "base64";
@@ -658,24 +683,24 @@ class EmailAuth extends PluginBase implements Listener {
 		$mail->Host = $this->getConfig ()->get ( "adminEmailHost" );
 		$mail->Port = $this->getConfig ()->get ( "adminEmailPort" );
 		$mail->SMTPAuth = true;
-
-		$mail->Username = explode ( "@", $this->getConfig ()->get ( "adminEmail" ) )[0];
+		
+		$mail->Username = explode ( "@", $this->getConfig ()->get ( "adminEmail" ) ) [0];
 		$mail->Password = $this->getConfig ()->get ( "adminEmailPassword" );
-
+		
 		$mail->setFrom ( $this->getConfig ()->get ( "adminEmail" ), $this->getConfig ()->get ( "serverName" ) );
 		$mail->addReplyTo ( $this->getConfig ()->get ( "adminEmail" ), $this->getConfig ()->get ( "serverName" ) );
 		$mail->addAddress ( $sendMail );
 		$mail->Subject = $this->getConfig ()->get ( "subjectName" );
 		$mail->msgHTML ( $html );
-
+		
 		$mail->smtpConnect ( array (
 				'ssl' => array (
 						'verify_peer' => false,
 						'verify_peer_name' => false,
-						'allow_self_signed' => true
-				)
+						'allow_self_signed' => true 
+				) 
 		) );
-
+		
 		if ($istest)
 			echo $mail->ErrorInfo . "\n";
 		return ($mail->send ()) ? true : false;

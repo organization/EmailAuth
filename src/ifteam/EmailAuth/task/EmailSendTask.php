@@ -3,7 +3,6 @@
 namespace ifteam\EmailAuth\task;
 
 use pocketmine\scheduler\AsyncTask;
-use pocketmine\Server;
 use ifteam\EmailAuth\PHPMailer;
 
 class EmailSendTask extends AsyncTask {
